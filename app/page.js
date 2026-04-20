@@ -68,6 +68,26 @@ function createEmptyExercise() {
   };
 }
 
+function summarizeExercises(exercises) {
+  if (!Array.isArray(exercises) || exercises.length === 0) {
+    return "Sin ejercicios registrados";
+  }
+
+  const names = exercises
+    .map((exercise) => exercise.name?.trim())
+    .filter(Boolean);
+
+  if (names.length === 0) {
+    return "Sin ejercicios registrados";
+  }
+
+  if (names.length <= 3) {
+    return names.join(", ");
+  }
+
+  return `${names.slice(0, 3).join(", ")} +${names.length - 3}`;
+}
+
 function getStartOfWeek(date) {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
@@ -141,6 +161,14 @@ export default function Home() {
       .filter((workout) => new Date(workout.date) >= startOfWeek)
       .sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [savedWorkouts]);
+
+  const recentWorkouts = useMemo(
+    () =>
+      [...savedWorkouts]
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .slice(0, 3),
+    [savedWorkouts]
+  );
 
   const weeklyVolume = useMemo(() => {
     const startOfWeek = getStartOfWeek(new Date());
@@ -231,6 +259,23 @@ export default function Home() {
           ? { ...exercise, [field]: value }
           : exercise
       ),
+    }));
+  }
+
+  function addExercise() {
+    setFormData((current) => ({
+      ...current,
+      exercises: [...current.exercises, createEmptyExercise()],
+    }));
+  }
+
+  function removeExercise(index) {
+    setFormData((current) => ({
+      ...current,
+      exercises:
+        current.exercises.length === 1
+          ? [createEmptyExercise()]
+          : current.exercises.filter((_, exerciseIndex) => exerciseIndex !== index),
     }));
   }
 
@@ -651,12 +696,12 @@ export default function Home() {
             </div>
 
             <div className="space-y-4">
-              {weeklyHistory.length === 0 ? (
+              {recentWorkouts.length === 0 ? (
                 <article className="rounded-[2rem] border border-slate-200/80 bg-slate-50/80 p-5 text-sm text-slate-500">
                   Aun no tienes sesiones registradas. Usa el boton &quot;Registrar entrenamiento&quot;.
                 </article>
               ) : (
-                weeklyHistory.slice(0, 3).map((session, index) => (
+                recentWorkouts.map((session, index) => (
                   <article
                     key={session.id}
                     className="rounded-[2rem] border border-slate-200/80 bg-slate-50/80 p-5"
@@ -671,7 +716,7 @@ export default function Home() {
                     </div>
                     <p className="text-sm text-slate-600">{session.routine}</p>
                     <p className="mt-2 text-xs text-slate-500">
-                      {session.exercises.map((exercise) => exercise.name).join(", ")}
+                      {summarizeExercises(session.exercises)}
                     </p>
                     <p className="mt-3 text-sm font-medium text-slate-950">
                       Duracion: {session.duration} min
