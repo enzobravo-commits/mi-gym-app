@@ -58,6 +58,16 @@ function getDefaultExercises(routine) {
   }));
 }
 
+function createEmptyExercise() {
+  return {
+    name: "",
+    sets: "",
+    reps: "",
+    weight: "",
+    rest: "",
+  };
+}
+
 function getStartOfWeek(date) {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
@@ -224,6 +234,23 @@ export default function Home() {
     }));
   }
 
+  function addExercise() {
+    setFormData((current) => ({
+      ...current,
+      exercises: [...current.exercises, createEmptyExercise()],
+    }));
+  }
+
+  function removeExercise(index) {
+    setFormData((current) => ({
+      ...current,
+      exercises:
+        current.exercises.length === 1
+          ? [createEmptyExercise()]
+          : current.exercises.filter((_, exerciseIndex) => exerciseIndex !== index),
+    }));
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
     const newWorkout = {
@@ -304,6 +331,10 @@ export default function Home() {
                       {session.notes && (
                         <p className="mt-2 text-sm text-slate-400">{session.notes}</p>
                       )}
+                      <p className="mt-2 text-xs text-slate-500">
+                        Ejercicios:{" "}
+                        {session.exercises.map((exercise) => exercise.name).join(", ")}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -439,8 +470,26 @@ export default function Home() {
                     key={`${exercise.name}-${index}`}
                     className="rounded-[2rem] border border-slate-200 bg-slate-50/80 p-4"
                   >
-                    <div className="mb-3">
-                      <p className="font-medium text-slate-950">{exercise.name}</p>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <label className="flex-1 space-y-1 text-sm text-slate-600">
+                        <span>Ejercicio</span>
+                        <input
+                          type="text"
+                          value={exercise.name}
+                          onChange={(event) =>
+                            updateExercise(index, "name", event.target.value)
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-950 outline-none"
+                          placeholder="Ejemplo: Press banca"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeExercise(index)}
+                        className="rounded-full border border-rose-200 px-3 py-2 text-xs font-medium text-rose-600 transition hover:bg-rose-50"
+                      >
+                        Quitar
+                      </button>
                     </div>
                     <div className="grid gap-3 md:grid-cols-4">
                       <label className="space-y-1 text-sm text-slate-600">
@@ -494,6 +543,14 @@ export default function Home() {
                   </div>
                 ))}
               </div>
+
+              <button
+                type="button"
+                onClick={addExercise}
+                className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Agregar ejercicio
+              </button>
 
               <label className="space-y-2 text-sm text-slate-600">
                 <span>Notas</span>
@@ -613,6 +670,9 @@ export default function Home() {
                       </span>
                     </div>
                     <p className="text-sm text-slate-600">{session.routine}</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {session.exercises.map((exercise) => exercise.name).join(", ")}
+                    </p>
                     <p className="mt-3 text-sm font-medium text-slate-950">
                       Duracion: {session.duration} min
                     </p>
