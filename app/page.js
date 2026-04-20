@@ -1,8 +1,12 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   CalendarDays,
   Dumbbell,
   Flame,
+  History,
   Target,
   Trophy,
 } from "lucide-react";
@@ -17,18 +21,51 @@ const weeklyVolume = [
   { day: "Dom", value: 28 },
 ];
 
-const todayPlan = [
-  { exercise: "Sentadilla", sets: "4 x 8", rest: "90 seg" },
-  { exercise: "Press banca", sets: "4 x 6", rest: "120 seg" },
-  { exercise: "Peso muerto rumano", sets: "3 x 10", rest: "90 seg" },
-  { exercise: "Dominadas asistidas", sets: "3 x 8", rest: "75 seg" },
-];
+const routinePlans = {
+  "Pecho - Hombro - Triceps": [
+    { exercise: "Press banca", sets: "4 x 6", rest: "120 seg" },
+    { exercise: "Press inclinado mancuerna", sets: "4 x 10", rest: "90 seg" },
+    { exercise: "Press militar", sets: "4 x 8", rest: "90 seg" },
+    { exercise: "Elevaciones laterales", sets: "3 x 15", rest: "60 seg" },
+    { exercise: "Fondos o triceps polea", sets: "3 x 12", rest: "60 seg" },
+  ],
+  "Espalda - Biceps": [
+    { exercise: "Dominadas asistidas", sets: "4 x 8", rest: "75 seg" },
+    { exercise: "Remo con barra", sets: "4 x 8", rest: "90 seg" },
+    { exercise: "Jalon al pecho", sets: "3 x 12", rest: "75 seg" },
+    { exercise: "Curl con barra", sets: "3 x 10", rest: "60 seg" },
+    { exercise: "Curl martillo", sets: "3 x 12", rest: "60 seg" },
+  ],
+  Pierna: [
+    { exercise: "Sentadilla", sets: "4 x 8", rest: "90 seg" },
+    { exercise: "Prensa", sets: "4 x 12", rest: "90 seg" },
+    { exercise: "Peso muerto rumano", sets: "3 x 10", rest: "90 seg" },
+    { exercise: "Hip thrust", sets: "4 x 10", rest: "75 seg" },
+    { exercise: "Gemelos", sets: "4 x 20", rest: "45 seg" },
+  ],
+};
 
-const recentSessions = [
-  { day: "Lunes", focus: "Piernas + core", duration: "68 min" },
-  { day: "Miercoles", focus: "Push", duration: "54 min" },
-  { day: "Viernes", focus: "Espalda + biceps", duration: "61 min" },
-];
+const STORAGE_KEY = "gym-tracker-workouts";
+const dayLabels = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
+
+function getDefaultExercises(routine) {
+  return routinePlans[routine].map((item) => ({
+    name: item.exercise,
+    sets: item.sets.split(" x ")[0] ?? "",
+    reps: item.sets.split(" x ")[1] ?? "",
+    weight: "",
+    rest: item.rest,
+  }));
+}
+
+function getStartOfWeek(date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  const day = copy.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  copy.setDate(copy.getDate() + diff);
+  return copy;
+}
 
 function StatCard({ icon: Icon, label, value, accent }) {
   return (
@@ -49,7 +86,154 @@ function StatCard({ icon: Icon, label, value, accent }) {
 }
 
 export default function Home() {
-  const maxVolume = Math.max(...weeklyVolume.map((item) => item.value));
+  const [selectedRoutine, setSelectedRoutine] = useState(
+    "Pecho - Hombro - Triceps"
+  );
+  const [showHistory, setShowHistory] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [savedWorkouts, setSavedWorkouts] = useState(() => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [formData, setFormData] = useState(() => ({
+    routine: "Pecho - Hombro - Triceps",
+    date: new Date().toISOString().slice(0, 10),
+    duration: "60",
+    notes: "",
+    exercises: getDefaultExercises("Pecho - Hombro - Triceps"),
+  }));
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(savedWorkouts));
+  }, [savedWorkouts]);
+
+  const todayPlan = useMemo(
+    () => routinePlans[selectedRoutine],
+    [selectedRoutine]
+  );
+
+  const weeklyHistory = useMemo(() => {
+    const startOfWeek = getStartOfWeek(new Date());
+    return savedWorkouts
+      .filter((workout) => new Date(workout.date) >= startOfWeek)
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [savedWorkouts]);
+
+  const weeklyVolume = useMemo(() => {
+    const startOfWeek = getStartOfWeek(new Date());
+    return dayLabels.map((label, index) => {
+      const dayDate = new Date(startOfWeek);
+      dayDate.setDate(startOfWeek.getDate() + index);
+
+      const total = savedWorkouts
+        .filter(
+          (workout) =>
+            new Date(workout.date).toDateString() === dayDate.toDateString()
+        )
+        .reduce((acc, workout) => {
+          const load = workout.exercises.reduce((exerciseAcc, exercise) => {
+            const sets = Number(exercise.sets) || 0;
+            const reps = Number(exercise.reps) || 0;
+            const weight = Number(exercise.weight) || 0;
+            return exerciseAcc + sets * reps * Math.max(weight, 1);
+          }, 0);
+          return acc + load;
+        }, 0);
+
+      return { day: label, value: total };
+    });
+  }, [savedWorkouts]);
+
+  const stats = useMemo(() => {
+    const month = new Date().getMonth();
+    const year = new Date().getFullYear();
+    const monthlyWorkouts = savedWorkouts.filter((workout) => {
+      const workoutDate = new Date(workout.date);
+      return workoutDate.getMonth() === month && workoutDate.getFullYear() === year;
+    });
+
+    const totalMinutes = savedWorkouts.reduce(
+      (acc, workout) => acc + (Number(workout.duration) || 0),
+      0
+    );
+
+    const bestSession = savedWorkouts.reduce((acc, workout) => {
+      const currentLoad = workout.exercises.reduce((exerciseAcc, exercise) => {
+        return (
+          exerciseAcc +
+          (Number(exercise.sets) || 0) *
+            (Number(exercise.reps) || 0) *
+            Math.max(Number(exercise.weight) || 1, 1)
+        );
+      }, 0);
+      return Math.max(acc, currentLoad);
+    }, 0);
+
+    return {
+      monthlyCount: monthlyWorkouts.length,
+      bestSession,
+      weeklyCompliance: `${Math.min(Math.round((weeklyHistory.length / 4) * 100), 100)}%`,
+      totalHours: `${(totalMinutes / 60).toFixed(1)} h`,
+      streak: weeklyHistory.length,
+    };
+  }, [savedWorkouts, weeklyHistory]);
+
+  const maxVolume = Math.max(...weeklyVolume.map((item) => item.value), 1);
+
+  function openWorkoutForm() {
+    setFormData({
+      routine: selectedRoutine,
+      date: new Date().toISOString().slice(0, 10),
+      duration: "60",
+      notes: "",
+      exercises: getDefaultExercises(selectedRoutine),
+    });
+    setShowForm(true);
+  }
+
+  function selectRoutine(routine) {
+    setSelectedRoutine(routine);
+    setFormData((current) => ({
+      ...current,
+      routine,
+      exercises: getDefaultExercises(routine),
+    }));
+  }
+
+  function updateExercise(index, field, value) {
+    setFormData((current) => ({
+      ...current,
+      exercises: current.exercises.map((exercise, exerciseIndex) =>
+        exerciseIndex === index
+          ? { ...exercise, [field]: value }
+          : exercise
+      ),
+    }));
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    const newWorkout = {
+      id: crypto.randomUUID(),
+      ...formData,
+    };
+    setSavedWorkouts((current) => [newWorkout, ...current]);
+    setShowForm(false);
+    setShowHistory(true);
+  }
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.22),_transparent_30%),linear-gradient(180deg,#fffaf0_0%,#f8fafc_42%,#eef2ff_100%)] px-5 py-6 text-slate-950 sm:px-8 lg:px-12">
@@ -61,34 +245,71 @@ export default function Home() {
                 <Flame className="h-4 w-4 text-amber-300" />
                 Gym Tracker
               </div>
-              <div className="rounded-full bg-emerald-400/15 px-4 py-2 text-sm text-emerald-300">
-                Racha activa: 6 dias
+              <div className="rounded-full bg-sky-400/15 px-4 py-2 text-sm text-sky-300">
+                Racha activa: {stats.streak} dias
               </div>
             </div>
 
             <div className="max-w-2xl">
-              <p className="mb-3 text-sm uppercase tracking-[0.28em] text-slate-400">
-                Dashboard principal
-              </p>
               <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-                Registra tus entrenamientos, mide tu progreso y manten tu
-                constancia.
+                Gym Tracker
               </h1>
               <p className="mt-4 max-w-xl text-base leading-7 text-slate-300 sm:text-lg">
-                Una vista clara para sesiones, volumen semanal, objetivos y
-                rendimiento. Pensada para usarla rapido antes, durante y despues
-                del gym.
+                Organiza tus rutinas, registra cada sesion y revisa tu semana en
+                segundos. Todo pensado para que entrenar sea mas simple.
               </p>
             </div>
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <button className="rounded-full bg-amber-400 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-amber-300">
-                Iniciar entrenamiento
+              <button
+                onClick={openWorkoutForm}
+                className="rounded-full bg-amber-400 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-amber-300"
+              >
+                Registrar entrenamiento
               </button>
-              <button className="rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/10">
+              <button
+                onClick={() => setShowHistory((current) => !current)}
+                className="rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+              >
                 Ver historial
               </button>
             </div>
+
+            {showHistory && (
+              <div className="mt-6 rounded-[2rem] border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex items-center gap-2 text-slate-200">
+                  <History className="h-4 w-4 text-sky-300" />
+                  Lo que has hecho en la semana
+                </div>
+                {weeklyHistory.length === 0 ? (
+                  <p className="text-sm text-slate-400">
+                    Aun no tienes entrenamientos guardados esta semana.
+                  </p>
+                ) : (
+                <div className="space-y-3">
+                  {weeklyHistory.map((session) => (
+                    <div
+                      key={session.id}
+                      className="rounded-2xl border border-white/10 bg-slate-900/70 p-4"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-medium text-white">{session.date}</p>
+                          <p className="text-sm text-slate-300">{session.routine}</p>
+                        </div>
+                        <span className="rounded-full bg-sky-400/15 px-3 py-1 text-xs font-medium text-sky-300">
+                          {session.duration} min
+                        </span>
+                      </div>
+                      {session.notes && (
+                        <p className="mt-2 text-sm text-slate-400">{session.notes}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="rounded-[2.5rem] border border-white/60 bg-white/75 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur">
@@ -97,11 +318,30 @@ export default function Home() {
                 <CalendarDays className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm text-slate-500">Plan de hoy</p>
+                <p className="text-sm text-slate-500">Registrar entrenamiento</p>
                 <h2 className="text-xl font-semibold text-slate-950">
-                  Full body de fuerza
+                  {selectedRoutine}
                 </h2>
               </div>
+            </div>
+
+            <div className="mb-5 flex flex-wrap gap-2">
+              {Object.keys(routinePlans).map((routine) => {
+                const isActive = routine === selectedRoutine;
+                return (
+                  <button
+                    key={routine}
+                    onClick={() => selectRoutine(routine)}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                      isActive
+                        ? "bg-slate-950 text-white"
+                        : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    {routine}
+                  </button>
+                );
+              })}
             </div>
 
             <div className="space-y-3">
@@ -127,29 +367,183 @@ export default function Home() {
           </div>
         </div>
 
+        {showForm && (
+          <section className="mb-8 rounded-[2.5rem] border border-amber-200/60 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">Formulario</p>
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                  Registrar entrenamiento
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowForm(false)}
+                className="rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <form className="space-y-6" onSubmit={handleSubmit}>
+              <div className="grid gap-4 md:grid-cols-3">
+                <label className="space-y-2 text-sm text-slate-600">
+                  <span>Rutina</span>
+                  <select
+                    value={formData.routine}
+                    onChange={(event) => selectRoutine(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-950 outline-none"
+                  >
+                    {Object.keys(routinePlans).map((routine) => (
+                      <option key={routine} value={routine}>
+                        {routine}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-2 text-sm text-slate-600">
+                  <span>Fecha</span>
+                  <input
+                    type="date"
+                    value={formData.date}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        date: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-950 outline-none"
+                  />
+                </label>
+
+                <label className="space-y-2 text-sm text-slate-600">
+                  <span>Duracion en minutos</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.duration}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        duration: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-950 outline-none"
+                  />
+                </label>
+              </div>
+
+              <div className="space-y-3">
+                {formData.exercises.map((exercise, index) => (
+                  <div
+                    key={`${exercise.name}-${index}`}
+                    className="rounded-[2rem] border border-slate-200 bg-slate-50/80 p-4"
+                  >
+                    <div className="mb-3">
+                      <p className="font-medium text-slate-950">{exercise.name}</p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <label className="space-y-1 text-sm text-slate-600">
+                        <span>Series</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={exercise.sets}
+                          onChange={(event) =>
+                            updateExercise(index, "sets", event.target.value)
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-950 outline-none"
+                        />
+                      </label>
+                      <label className="space-y-1 text-sm text-slate-600">
+                        <span>Reps</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={exercise.reps}
+                          onChange={(event) =>
+                            updateExercise(index, "reps", event.target.value)
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-950 outline-none"
+                        />
+                      </label>
+                      <label className="space-y-1 text-sm text-slate-600">
+                        <span>Peso (kg)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={exercise.weight}
+                          onChange={(event) =>
+                            updateExercise(index, "weight", event.target.value)
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-950 outline-none"
+                        />
+                      </label>
+                      <label className="space-y-1 text-sm text-slate-600">
+                        <span>Descanso</span>
+                        <input
+                          type="text"
+                          value={exercise.rest}
+                          onChange={(event) =>
+                            updateExercise(index, "rest", event.target.value)
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-950 outline-none"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <label className="space-y-2 text-sm text-slate-600">
+                <span>Notas</span>
+                <textarea
+                  rows={4}
+                  value={formData.notes}
+                  onChange={(event) =>
+                    setFormData((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-[1.5rem] border border-slate-200 bg-white px-4 py-3 text-slate-950 outline-none"
+                  placeholder="Como te fue hoy, pesos, sensaciones, tecnica..."
+                />
+              </label>
+
+              <button
+                type="submit"
+                className="rounded-full bg-slate-950 px-6 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                Guardar entrenamiento
+              </button>
+            </form>
+          </section>
+        )}
+
         <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             icon={Dumbbell}
             label="Entrenamientos este mes"
-            value="18"
+            value={String(stats.monthlyCount)}
             accent="bg-amber-100 text-amber-700"
           />
           <StatCard
             icon={Trophy}
-            label="PRs conseguidos"
-            value="4"
+            label="Mejor carga de sesion"
+            value={String(stats.bestSession)}
             accent="bg-emerald-100 text-emerald-700"
           />
           <StatCard
             icon={Target}
             label="Cumplimiento semanal"
-            value="86%"
+            value={stats.weeklyCompliance}
             accent="bg-rose-100 text-rose-700"
           />
           <StatCard
             icon={Activity}
             label="Tiempo total entrenado"
-            value="7.8 h"
+            value={stats.totalHours}
             accent="bg-sky-100 text-sky-700"
           />
         </div>
@@ -200,25 +594,31 @@ export default function Home() {
             </div>
 
             <div className="space-y-4">
-              {recentSessions.map((session, index) => (
-                <article
-                  key={`${session.day}-${session.focus}`}
-                  className="rounded-[2rem] border border-slate-200/80 bg-slate-50/80 p-5"
-                >
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-base font-medium text-slate-950">
-                      {session.day}
-                    </p>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-500 shadow-sm">
-                      Sesion {index + 1}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-600">{session.focus}</p>
-                  <p className="mt-3 text-sm font-medium text-slate-950">
-                    Duracion: {session.duration}
-                  </p>
+              {weeklyHistory.length === 0 ? (
+                <article className="rounded-[2rem] border border-slate-200/80 bg-slate-50/80 p-5 text-sm text-slate-500">
+                  Aun no tienes sesiones registradas. Usa el boton &quot;Registrar entrenamiento&quot;.
                 </article>
-              ))}
+              ) : (
+                weeklyHistory.slice(0, 3).map((session, index) => (
+                  <article
+                    key={session.id}
+                    className="rounded-[2rem] border border-slate-200/80 bg-slate-50/80 p-5"
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-base font-medium text-slate-950">
+                        {session.date}
+                      </p>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-500 shadow-sm">
+                        Sesion {index + 1}
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-600">{session.routine}</p>
+                    <p className="mt-3 text-sm font-medium text-slate-950">
+                      Duracion: {session.duration} min
+                    </p>
+                  </article>
+                ))
+              )}
             </div>
           </section>
         </div>
